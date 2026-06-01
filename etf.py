@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 
 # --- 版本控制 ---
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 
 # --- 網頁配置 ---
 st.set_page_config(page_title="路西法智庫：迦南金鑰", page_icon="🔑", layout="wide")
@@ -16,11 +16,7 @@ def get_market_price(ticker_symbol):
         return None
 
 def get_latest_nav(ticker_symbol):
-    """
-    未來這裡將接入正式爬蟲API。
-    目前為了精確呈現，我們將預留浮點數處理邏輯。
-    """
-    # 模擬 0050 的精確淨值 104.67
+    # 模擬數值：104.67
     return 104.67 
 
 def main():
@@ -37,14 +33,23 @@ def main():
             nav = get_latest_nav(symbol) 
         
         if price and nav:
-            # 精確計算：使用 round(val, 2) 確保顯示至小數點後兩位
             premium = ((price - nav) / nav) * 100
             
-            # 使用 formatted string {: .2f} 確保數值顯示精確到小數點後兩位
+            # 設定顏色邏輯
+            # 溢價 > 0 為紅色，折價 < 0 為綠色
+            color = "red" if premium > 0 else "green"
+            
             col1, col2, col3 = st.columns(3)
             col1.metric("即時市價", f"{price:.2f}")
             col2.metric("最新淨值", f"{nav:.2f}")
-            col3.metric("折溢價率", f"{premium:.2f}%")
+            
+            # 使用 Markdown 渲染帶顏色的折溢價率
+            col3.markdown(f"""
+            <div style="font-size: 1.2rem; font-weight: bold; color: {color};">
+            折溢價率<br>
+            <span style="font-size: 2rem;">{premium:+.2f}%</span>
+            </div>
+            """, unsafe_allow_html=True)
             
             # 燈號邏輯
             if premium > 1.0:
