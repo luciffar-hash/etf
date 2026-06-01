@@ -2,52 +2,58 @@ import streamlit as st
 import yfinance as yf
 
 # --- 版本控制 ---
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 
 # --- 網頁配置 ---
 st.set_page_config(page_title="路西法智庫：迦南金鑰", page_icon="🔑", layout="wide")
 
 def get_market_price(ticker_symbol):
-    """
-    優化後的報價抓取函數
-    """
     try:
-        # 確保代號正確格式
-        ticker_str = f"{ticker_symbol}.TW"
-        ticker = yf.Ticker(ticker_str)
-        # 使用 fast_info 獲取更即時的資訊
+        ticker = yf.Ticker(f"{ticker_symbol}.TW")
         price = ticker.fast_info.last_price
         return round(price, 2) if price else None
-    except Exception as e:
+    except:
         return None
+
+def get_latest_nav(ticker_symbol):
+    """
+    未來這裡將接入自動爬蟲邏輯
+    目前先預留，避免程式錯誤
+    """
+    # 這裡未來會串接各投信官網或證交所 API
+    return 105.0 # 暫時模擬數值，供您測試介面
 
 def main():
     st.title("🔑 路西法智庫：迦南金鑰")
     st.subheader("Luciffar AI: Canaan Key — ETF NAV Insights")
     st.sidebar.markdown(f"### 系統版本: {VERSION}")
     
-    tab1, tab2 = st.tabs(["📊 即時監控", "📋 監控清單"])
+    st.write("---")
+    symbol = st.text_input("輸入 ETF 代號 (例如: 0050, 00631L):")
     
-    with tab1:
-        st.write("### 自動報價系統")
-        symbol = st.text_input("輸入 ETF 代號 (例如: 0050, 00631L):")
+    if symbol:
+        with st.spinner('正在從迦南金鑰擷取市場數據...'):
+            price = get_market_price(symbol)
+            nav = get_latest_nav(symbol) # 自動獲取淨值
         
-        if symbol:
-            with st.spinner('正在查詢市場數據...'):
-                price = get_market_price(symbol)
+        if price and nav:
+            premium = ((price - nav) / nav) * 100
             
-            if price:
-                st.success(f"目前市價: {price}")
-                nav = st.number_input("手動輸入最新淨值 (NAV) 以計算溢價:", min_value=0.0, format="%.2f")
-                if nav > 0:
-                    premium = ((price - nav) / nav) * 100
-                    st.metric("即時折溢價率", f"{round(premium, 2)}%")
+            # 顯示結果區
+            col1, col2, col3 = st.columns(3)
+            col1.metric("即時市價", price)
+            col2.metric("最新淨值", nav)
+            col3.metric("折溢價率", f"{round(premium, 2)}%")
+            
+            # 燈號邏輯
+            if premium > 1.0:
+                st.error("⚠️ 警示：目前溢價過高，買進需謹慎！")
+            elif premium < -0.5:
+                st.success("✅ 提示：目前為折價狀態，相對划算。")
             else:
-                st.error(f"無法取得 {symbol}.TW 的報價，請檢查代號或網路連線。")
-
-    with tab2:
-        st.write("### 監控清單")
-        st.info("系統已準備好串接多個標的。")
+                st.info("ℹ️ 狀態：價格合理。")
+        else:
+            st.error(f"無法取得 {symbol} 的完整數據，請檢查代號。")
 
 if __name__ == "__main__":
     main()
