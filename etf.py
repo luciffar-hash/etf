@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 
 # --- 版本控制 ---
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 # --- 網頁配置 ---
 st.set_page_config(page_title="路西法智庫：迦南金鑰", page_icon="🔑", layout="wide")
@@ -16,24 +16,21 @@ def get_market_price(ticker_symbol):
         return None
 
 def get_latest_nav(ticker_symbol):
-    # 模擬數據：104.67
+    # 模擬數據
     return 104.67 
 
 def get_status_msg(premium):
     """
-    根據溢價率返回狀態與顏色
-    調整門檻：雙向 1%
+    更新顏色判定邏輯：溢價為黃色至紅色梯度，折價為綠色。
     """
     if premium >= 1.0:
-        return "⚠️ 高度溢價 (>=1%)：買進成本過高，建議避險。", "error"
+        return "⚠️ 高度溢價 (>=1%)：買進成本過高，建議避險。", "error", "red"
     elif premium > 0:
-        return "⚡ 輕微溢價：市場價格略高於淨值。", "warning"
+        return "⚡ 輕微溢價：市場價格略高於淨值，請審慎評估。", "warning", "orange"
     elif premium <= -1.0:
-        return "✅ 極佳折價 (<= -1%)：出現明顯折價，具備進場價值！", "success"
-    elif premium < 0:
-        return "✨ 輕微折價：目前價格略低於淨值。", "info"
+        return "✅ 極佳折價 (<= -1%)：出現明顯折價，具備進場價值！", "success", "green"
     else:
-        return "ℹ️ 價格合理：市場交易正常。", "info"
+        return "ℹ️ 輕微折價：目前價格略低於淨值。", "info", "blue"
 
 def main():
     st.title("🔑 路西法智庫：迦南金鑰")
@@ -51,16 +48,19 @@ def main():
         if price and nav:
             diff = price - nav
             premium_pct = (diff / nav) * 100
-            color = "red" if premium_pct > 0 else "green"
+            
+            # 獲取顏色與訊息
+            msg, msg_type, color_code = get_status_msg(premium_pct)
             
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("即時市價", f"{price:.2f}")
             c2.metric("最新淨值", f"{nav:.2f}")
-            c3.markdown(f"<div style='font-size: 0.9rem; color: #808495;'>折溢價金額</div><div style='font-size: 1.8rem; font-weight: bold; color: {color};'>{diff:+.2f}</div>", unsafe_allow_html=True)
-            c4.markdown(f"<div style='font-size: 0.9rem; color: #808495;'>折溢價率</div><div style='font-size: 1.8rem; font-weight: bold; color: {color};'>{premium_pct:+.2f}%</div>", unsafe_allow_html=True)
             
-            # 動態警示
-            msg, msg_type = get_status_msg(premium_pct)
+            # 顯示區使用動態顏色
+            c3.markdown(f"<div style='font-size: 0.9rem; color: #808495;'>折溢價金額</div><div style='font-size: 1.8rem; font-weight: bold; color: {color_code};'>{diff:+.2f}</div>", unsafe_allow_html=True)
+            c4.markdown(f"<div style='font-size: 0.9rem; color: #808495;'>折溢價率</div><div style='font-size: 1.8rem; font-weight: bold; color: {color_code};'>{premium_pct:+.2f}%</div>", unsafe_allow_html=True)
+            
+            # 狀態回饋
             if msg_type == "error": st.error(msg)
             elif msg_type == "warning": st.warning(msg)
             elif msg_type == "success": st.success(msg)
