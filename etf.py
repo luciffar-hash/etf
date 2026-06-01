@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 
 # --- 版本控制 ---
-VERSION = "0.1.9"
+VERSION = "0.2.1"
 
 # --- 網頁配置 ---
 st.set_page_config(page_title="路西法智庫：迦南金鑰", page_icon="🔑", layout="wide")
@@ -16,8 +16,24 @@ def get_market_price(ticker_symbol):
         return None
 
 def get_latest_nav(ticker_symbol):
-    # 模擬數據：未來將對接自動爬蟲
+    # 模擬數據：104.67
     return 104.67 
+
+def get_status_msg(premium):
+    """
+    根據溢價率返回狀態與顏色
+    調整門檻：雙向 1%
+    """
+    if premium >= 1.0:
+        return "⚠️ 高度溢價 (>=1%)：買進成本過高，建議避險。", "error"
+    elif premium > 0:
+        return "⚡ 輕微溢價：市場價格略高於淨值。", "warning"
+    elif premium <= -1.0:
+        return "✅ 極佳折價 (<= -1%)：出現明顯折價，具備進場價值！", "success"
+    elif premium < 0:
+        return "✨ 輕微折價：目前價格略低於淨值。", "info"
+    else:
+        return "ℹ️ 價格合理：市場交易正常。", "info"
 
 def main():
     st.title("🔑 路西法智庫：迦南金鑰")
@@ -28,50 +44,27 @@ def main():
     symbol = st.text_input("輸入 ETF 代號 (例如: 0050, 00631L):")
     
     if symbol:
-        with st.spinner('正在更新市場數據...'):
+        with st.spinner('正在從迦南金鑰擷取精確數據...'):
             price = get_market_price(symbol)
             nav = get_latest_nav(symbol) 
         
         if price and nav:
-            # 計算數據
-            diff = price - nav  # 折溢價金額
-            premium_pct = (diff / nav) * 100 # 折溢價率
+            diff = price - nav
+            premium_pct = (diff / nav) * 100
+            color = "red" if premium_pct > 0 else "green"
             
-            # 顏色判定邏輯
-            color = "red" if diff > 0 else "green"
-            
-            # 擴充為四欄位顯示
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("即時市價", f"{price:.2f}")
             c2.metric("最新淨值", f"{nav:.2f}")
+            c3.markdown(f"<div style='font-size: 0.9rem; color: #808495;'>折溢價金額</div><div style='font-size: 1.8rem; font-weight: bold; color: {color};'>{diff:+.2f}</div>", unsafe_allow_html=True)
+            c4.markdown(f"<div style='font-size: 0.9rem; color: #808495;'>折溢價率</div><div style='font-size: 1.8rem; font-weight: bold; color: {color};'>{premium_pct:+.2f}%</div>", unsafe_allow_html=True)
             
-            # 折溢價金額顯示 (新增欄位)
-            c3.markdown(f"""
-            <div style="font-family: sans-serif;">
-                <div style="font-size: 0.9rem; color: #808495; margin-bottom: 5px;">折溢價金額</div>
-                <div style="font-size: 1.8rem; font-weight: bold; color: {color};">
-                    {diff:+.2f}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # 折溢價率顯示
-            c4.markdown(f"""
-            <div style="font-family: sans-serif;">
-                <div style="font-size: 0.9rem; color: #808495; margin-bottom: 5px;">折溢價率</div>
-                <div style="font-size: 1.8rem; font-weight: bold; color: {color};">
-                    {premium_pct:+.2f}%
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # 燈號邏輯
-            if diff > 0.5:
-                st.error("⚠️ 警示：目前溢價偏高，建議觀察。")
-            elif diff < -0.2:
-                st.success("✅ 提示：目前為折價狀態，相對划算。")
-            else:
-                st.info("ℹ️ 狀態：價格合理。")
+            # 動態警示
+            msg, msg_type = get_status_msg(premium_pct)
+            if msg_type == "error": st.error(msg)
+            elif msg_type == "warning": st.warning(msg)
+            elif msg_type == "success": st.success(msg)
+            else: st.info(msg)
         else:
             st.error(f"無法取得 {symbol} 的數據，請檢查代號。")
 
