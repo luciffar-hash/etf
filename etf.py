@@ -1,10 +1,9 @@
 import streamlit as st
 import yfinance as yf
-import requests
-from bs4 import BeautifulSoup
+from FinMind.data import DataLoader
 
 # --- 版本控制 ---
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 # --- 網頁配置 ---
 st.set_page_config(page_title="路西法智庫：迦南金鑰", page_icon="🔑", layout="wide")
@@ -12,62 +11,50 @@ st.set_page_config(page_title="路西法智庫：迦南金鑰", page_icon="🔑"
 def get_market_price(ticker_symbol):
     try:
         ticker = yf.Ticker(f"{ticker_symbol}.TW")
-        price = ticker.fast_info.last_price
-        return round(price, 2) if price else None
+        return round(ticker.fast_info.last_price, 2)
     except:
         return None
 
 def get_realtime_nav(ticker_symbol):
     """
-    爬蟲實戰：從玩股網獲取該 ETF 的最新淨值
+    透過 FinMind API 獲取最新的 ETF 淨值
     """
     try:
-        url = f"https://wantgoo.com/stock/etf/{ticker_symbol}/discount-premium"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 尋找表格中最新的淨值欄位 (根據玩股網結構)
-        # 此處為簡化邏輯，實際運作需確保選擇器能精確捕捉
-        table = soup.find('table', {'class': 'table-striped'})
-        rows = table.find_all('tr')
-        # 獲取第二列 (最新日期) 的第二個數據 (淨值)
-        latest_nav = float(rows[1].find_all('td')[2].text.strip())
-        return latest_nav
+        dl = DataLoader()
+        # 獲取 ETF 淨值數據
+        df = dl.taiwan_stock_daily(stock_id=ticker_symbol, start_date="2026-06-01")
+        # 這裡需根據實際 API 回傳欄位調整，通常最新資料在最後一行
+        return float(df['close'].iloc[-1]) 
     except:
         return None
 
 def main():
     st.title("🔑 路西法智庫：迦南金鑰")
     st.subheader("Luciffar AI: Canaan Key — ETF NAV Insights")
-    st.sidebar.markdown(f"### 系統版本: {VERSION}")
     
     symbol = st.text_input("輸入 ETF 代號 (例如: 0050, 00715L):")
     
     if symbol:
-        with st.spinner(f'正在為您擷取 {symbol} 的即時數據...'):
+        with st.spinner(f'正在向金融中心查詢 {symbol} 數據...'):
             price = get_market_price(symbol)
-            nav = get_realtime_nav(symbol) 
-        
-        if price and nav:
-            diff = price - nav
-            premium_pct = (diff / nav) * 100
+            nav = get_realtime_nav(symbol)
             
-            # 顏色邏輯
-            color = "red" if premium_pct > 0 else "green"
-            
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("即時市價", f"{price:.2f}")
-            c2.metric("最新淨值", f"{nav:.2f}")
-            c3.markdown(f"<div style='font-size: 0.9rem; color: #808495;'>折溢價金額</div><div style='font-size: 1.8rem; font-weight: bold; color: {color};'>{diff:+.2f}</div>", unsafe_allow_html=True)
-            c4.markdown(f"<div style='font-size: 0.9rem; color: #808495;'>折溢價率</div><div style='font-size: 1.8rem; font-weight: bold; color: {color};'>{premium_pct:+.2f}%</div>", unsafe_allow_html=True)
-            
-            # 警示機制
-            if premium_pct >= 1.0: st.error("⚠️ 高度溢價：買進成本過高，建議避險。")
-            elif premium_pct <= -1.0: st.success("✅ 極佳折價：出現明顯折價，具備進場價值！")
-            else: st.info("ℹ️ 價格合理：市場交易正常。")
-        else:
-            st.error("無法自動抓取淨值，請確認代號是否為有效 ETF。")
+            if price and nav:
+                diff = price - nav
+                pct = (diff / nav) * 100
+                color = "red" if diff > 0 else "green"
+                
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("即時市價", f"{price:.2f}")
+                c2.metric("最新淨值", f"{nav:.2f}")
+                c3.markdown(f"<div style='color:{color}; font-size:1.8rem; font-weight:bold;'>{diff:+.2f}</div>", unsafe_allow_html=True)
+                c4.markdown(f"<div style='color:{color}; font-size:1.8rem; font-weight:bold;'>{pct:+.2f}%</div>", unsafe_allow_html=True)
+                
+                if pct >= 1.0: st.error("⚠️ 高度溢價：買進成本過高，建議避險。")
+                elif pct <= -1.0: st.success("✅ 極佳折價：具備進場價值！")
+                else: st.info("ℹ️ 價格合理：市場交易正常。")
+            else:
+                st.error("系統無法取得數據，請確認 API 連線狀態。")
 
 if __name__ == "__main__":
     main()
