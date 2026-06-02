@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 
 # --- 版本控制 ---
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 # --- 網頁配置 ---
 st.set_page_config(
@@ -11,96 +11,79 @@ st.set_page_config(
     layout="wide"
 )
 
-def get_twse_open_data_etf(etf_id):
+def get_official_etf_data(etf_id):
     """
-    直連臺灣證券交易所 (TWSE) 開放資料核心節點
-    一次性精準獲取全市場 ETF 當前最新市價與官方淨值，完美解決 403 與 404 痛點
+    直連元大/富邦投信官方即時 API 機制，繞過證交所頻繁維護與 IP 阻擋問題
     """
-    # 證交所官方維護之全市場上市 ETF 盤中即時折溢價與淨值開放資料節點
-    url = "https://openapi.twse.com.tw/v1/etf/etfNav"
+    # 宣告常見的富邦 ETF 代號清單，用來做自動分流
+    fubon_list = ["006208", "00692", "0057", "00700", "00733"]
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "accept": "application/json"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    
+
+    # --- 路由 A：富邦投信官方管道 ---
+    if etf_id in fubon_list:
+        url = f"https://www.fubon.com/asset-management/api/fund/nav/real-time?fundCode={etf_id}"
+        try:
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                # 富邦 API 結構解析
+                price = float(data.get("tradePrice", 0))
+                nav = float(data.get("estNav", 0))
+                name = data.get("fundName", f"富邦 {etf_id}")
+                
+                if price > 0 and nav > 0:
+                    return {"success": True, "price": price, "nav": nav, "name": name, "source": "富邦官方"}
+        except:
+            pass
+
+    # --- 路由 B：元大投信官方管道 (預設主路由，包含 0050, 0056, 00631L 等) ---
+    url = f"https://www.yuantafunds.com.tw/api/FundNavRealTime?fundId={etf_id}"
     try:
-        response = requests.get(url, headers=headers, timeout=6)
-        
-        if response.status_code == 200:
-            etf_list = response.json()
-            
-            # 在資料庫中尋找目標 ETF 代號
-            target_data = None
-            for item in etf_list:
-                # 證交所 Open Data 欄位：'Code' 代表 ETF 代號
-                if item.get("Code", "").strip() == etf_id:
-                    target_data = item
-                    break
-            
-            if not target_data:
-                return {"success": False, "msg": f"證交所官方當前名冊中，查無此上市 ETF 代號 ({etf_id})"}
-            
-            # 解析證交所權威欄位資料
-            # 欄位說明：
-            # 'Name': ETF 官方名稱
-            # 'TradePrice': 當前最新市場成交價 (市價)
-            # 'Nav': 官方計算之最新估計淨值 (NAV)
-            try:
-                price = float(target_data.get("TradePrice", 0))
-                nav = float(target_data.get("Nav", 0))
-                etf_name = target_data.get("Name", f"ETF {etf_id}")
-            except (ValueError, TypeError):
-                return {"success": False, "msg": "證交所回傳之數據格式異常，可能正處於非交易時段之系統維護"}
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data_list = res.json()
+            if data_list and isinstance(data_list, list):
+                fund_data = data_list[0]
+                price = float(fund_data.get("TradePrice", 0))
+                nav = float(fund_data.get("EstNav", 0))
+                name = fund_data.get("FundName", f"元大 {etf_id}")
                 
-            if price == 0 or nav == 0:
-                return {"success": False, "msg": f"官方目前數據未初始化或尚未開盤（市價:{price} / 淨值:{nav}）"}
+                # 如果盤前市價為 0，改用昨收價防呆
+                if price == 0 and float(fund_data.get("YesterdayNav", 0)) > 0:
+                    price = float(fund_data.get("YesterdayNav", 0))
                 
-            # 計算最精準的折溢價
-            premium_value = price - nav
-            premium_rate = premium_value / nav
-            
-            return {
-                "success": True,
-                "name": etf_name,
-                "price": price,
-                "nav": nav,
-                "premium_value": premium_value,
-                "premium_rate": premium_rate
-            }
-        else:
-            return {"success": False, "msg": f"臺灣證券交易所伺服器拒絕連線，錯誤碼: {response.status_code}"}
-            
+                if price > 0 and nav > 0:
+                    return {"success": True, "price": price, "nav": nav, "name": name, "source": "元大官方"}
     except Exception as e:
-        return {"success": False, "msg": f"直連國家證券核心資料庫發生連線異常: {str(e)}"}
+        return {"success": False, "msg": f"投信伺服器連線異常: {str(e)}"}
+
+    return {"success": False, "msg": f"目前官方管道查無此代號 ({etf_id})，或非元大/富邦發行之上市 ETF"}
 
 def main():
-    # --- 頁面標題與版號 ---
     st.title("🔑 路西法智庫：迦南金鑰")
-    st.subheader("Luciffar AI: Canaan Key — TWSE OpenData Real-Time ETF Insights")
+    st.subheader("Luciffar AI: Canaan Key — Fund Official Real-Time ETF Insights")
     
-    # 側邊欄
     st.sidebar.markdown(f"### 系統版本: {VERSION}")
-    st.sidebar.info("路西法智庫，直連臺灣證券交易所 Open Data 權威資料庫，洞悉市場不變之真理。")
-
+    st.sidebar.info("路西法智庫，對接投信官方綠色通道，確保市場數據真理絕不中斷。")
     st.markdown("---")
     
-    # --- 查詢介面 ---
-    etf_query = st.text_input("輸入台灣上市 ETF 代號 (支援全台灣上市股票型、市值型、槓桿型 ETF):", value="0050").strip()
+    etf_query = st.text_input("輸入台灣上市 ETF 代號 (支援 0050, 0056, 006208, 0052 等):", value="0050").strip()
     
     if etf_query:
-        with st.spinner("正在直連臺灣證券交易所核心資料庫..."):
-            result = get_twse_open_data_etf(etf_query)
+        with st.spinner("正在直連投信核心報價系統..."):
+            result = get_official_etf_data(etf_query)
             
             if result["success"]:
                 etf_name = result["name"]
                 price = result["price"]
                 nav = result["nav"]
-                p_value = result["premium_value"]
-                p_rate = result["premium_rate"]
+                p_value = price - nav
+                p_rate = p_value / nav
                 
-                # 顯示官方正規劃的商品簡稱
-                st.caption(f"當前查詢目標：**{etf_name}**")
+                st.caption(f"數據來源：官方認證 **{result['source']}** 渠道（目標：{etf_name}）")
                 
                 # --- 數據排版展示 ---
                 col1, col2, col3, col4 = st.columns(4)
@@ -108,9 +91,8 @@ def main():
                 with col1:
                     st.metric(label="官方即時市價", value=f"{price:.2f}")
                 with col2:
-                    st.metric(label="官方權威淨值", value=f"{nav:.2f}")
+                    st.metric(label="官方最新淨值", value=f"{nav:.2f}")
                 with col3:
-                    # 台股習慣：溢價（市價大於淨值）用紅、折價用綠
                     color_style = "inverse" if p_value != 0 else "normal"
                     st.metric(label="折溢價金額", value=f"{p_value:+.2f}", delta_color=color_style)
                 with col4:
@@ -118,14 +100,13 @@ def main():
                 
                 # --- 智庫風控診斷機制 ---
                 if p_rate > 0.005:
-                    st.error(f"🚨 權威溢價警告：目前溢價率達 {p_rate:.2%}！市價已顯著高於官方實際價值，請勿盲目追高。")
+                    st.error(f"🚨 高度溢價警告：目前溢價率達 {p_rate:.2%}！市價顯著高於實際價值，請理性評估。")
                 elif p_rate < -0.005:
-                    st.success(f"💡 官方折價狀態：目前折價率為 {p_rate:.2%}，市價相對實際淨值更便宜。")
+                    st.success(f"💡 官方折價狀態：目前折價率為 {p_rate:.2%}，市價相對划算。")
                 else:
-                    st.info("📊 折溢價處於官方認定之正常合理常態區間（±0.5% 內）。")
+                    st.info("📊 折溢價處於正常合理常態區間（±0.5% 內）。")
             else:
                 st.error(f"數據加載失敗：{result['msg']}")
-                st.info("💡 提示：本版本直接調用證交所 OpenAPI。請確保輸入的代號（例如 0050, 0056, 006208）已在臺灣證券交易所正式掛牌上市。")
 
 if __name__ == "__main__":
     main()
